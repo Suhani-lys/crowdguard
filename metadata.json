@@ -1,0 +1,5 @@
+{
+  "name": "CrowdGuard",
+  "description": "A next-generation community safety platform featuring real-time incident mapping, SOS alerts, and gamified civic engagement.",
+  "requestFramePermissions": ["geolocation", "microphone"]
+}
