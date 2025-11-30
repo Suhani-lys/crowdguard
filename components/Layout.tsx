@@ -180,7 +180,7 @@ export const Footer = () => (
         </p>
       </div>
       <p className="text-center text-sm text-muted-foreground">
-        &copy; 2024 CrowdGuard. All rights reserved.
+        &copy; 2025 CrowdGuard. All rights reserved.
       </p>
     </div>
   </footer>
