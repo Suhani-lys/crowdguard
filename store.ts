@@ -52,7 +52,11 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const response = await fetch('http://localhost:4000/api/incidents');
       const data = await response.json();
-      set({ incidents: data });
+      if (Array.isArray(data)) {
+        set({ incidents: data });
+      } else {
+        console.error('Failed to fetch incidents: API response is not an array', data);
+      }
     } catch (error) {
       console.error('Failed to fetch incidents:', error);
     }
@@ -176,18 +180,23 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const res = await fetch('http://localhost:4000/api/leaderboard');
       const data = await res.json();
-      set({ leaderboardUsers: data });
+      if (Array.isArray(data)) {
+        set({ leaderboardUsers: data });
+      } else {
+        console.error('Failed to fetch leaderboard: API response is not an array', data);
+      }
     } catch (error) {
       console.error('Failed to fetch leaderboard:', error);
     }
   },
   news: [],
   fetchNews: async (lat, lon) => {
-    if (!lat || !lon) return;
+    const queryLat = lat ?? 40.7128;
+    const queryLon = lon ?? -74.0060;
 
     try {
       // Fetch from our backend proxy
-      const newsRes = await fetch(`http://localhost:4000/api/news?lat=${lat}&lon=${lon}`);
+      const newsRes = await fetch(`http://localhost:4000/api/news?lat=${queryLat}&lon=${queryLon}`);
       const text = await newsRes.text();
 
       // 3. Parse XML
@@ -237,8 +246,10 @@ export const useStore = create<AppState>((set, get) => ({
   },
   responders: [],
   fetchResponders: async (lat, lon) => {
+    const queryLat = lat ?? 40.7128;
+    const queryLon = lon ?? -74.0060;
     try {
-      const res = await fetch(`http://localhost:4000/api/nearby-responders?lat=${lat}&lon=${lon}`);
+      const res = await fetch(`http://localhost:4000/api/nearby-responders?lat=${queryLat}&lon=${queryLon}`);
       const data = await res.json();
       set({ responders: data });
     } catch (error) {

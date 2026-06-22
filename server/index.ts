@@ -33,52 +33,98 @@ const io = new Server(server, {
 });
 
 // MongoDB Connection
+let isMongoConnected = false;
+
+const localIncidents: any[] = [
+  {
+    id: '1',
+    type: 'theft',
+    latitude: 40.7128,
+    longitude: -74.0060,
+    description: 'Bicycle stolen from bike rack.',
+    timestamp: '2023-10-27T10:00:00Z',
+    verified: true,
+    reporterId: 'u1',
+    upvotes: 12
+  },
+  {
+    id: '2',
+    type: 'suspicious',
+    latitude: 40.7150,
+    longitude: -74.0100,
+    description: 'Suspicious individual looking into cars.',
+    timestamp: '2023-10-27T11:30:00Z',
+    verified: false,
+    reporterId: 'u2',
+    upvotes: 5
+  },
+  {
+    id: '3',
+    type: 'accident',
+    latitude: 40.7200,
+    longitude: -73.9900,
+    description: 'Minor collision between taxi and sedan.',
+    timestamp: '2023-10-27T09:15:00Z',
+    verified: true,
+    reporterId: 'u3',
+    upvotes: 20
+  }
+];
+
+const localUsers: any[] = [
+  {
+    id: "u1",
+    name: "Alex Chen",
+    rank: 1,
+    points: 2450,
+    badges: ["Guardian", "First Responder", "Top Reporter"],
+    avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Alex",
+  },
+  {
+    id: "u2",
+    name: "Sarah Jones",
+    rank: 2,
+    points: 1980,
+    badges: ["Scout", "Helper"],
+    avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah",
+  },
+  {
+    id: "u3",
+    name: "Mike Ross",
+    rank: 3,
+    points: 1850,
+    badges: ["Watcher"],
+    avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Mike",
+  },
+];
+
+const localComments: any[] = [];
+
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/crowdguard";
+
 mongoose
-  .connect(MONGODB_URI)
+  .connect(MONGODB_URI, { serverSelectionTimeoutMS: 2000 })
   .then(async () => {
-    console.log("Connected to MongoDB");
+    console.log("Connected to MongoDB successfully.");
+    isMongoConnected = true;
 
     // Seed Users if empty
     try {
       const count = await User.countDocuments();
       if (count === 0) {
-        console.log("Seeding initial users...");
-        const mockUsers = [
-          {
-            id: "u1",
-            name: "Alex Chen",
-            rank: 1,
-            points: 2450,
-            badges: ["Guardian", "First Responder", "Top Reporter"],
-            avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Alex",
-          },
-          {
-            id: "u2",
-            name: "Sarah Jones",
-            rank: 2,
-            points: 1980,
-            badges: ["Scout", "Helper"],
-            avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah",
-          },
-          {
-            id: "u3",
-            name: "Mike Ross",
-            rank: 3,
-            points: 1850,
-            badges: ["Watcher"],
-            avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Mike",
-          },
-        ];
-        await User.insertMany(mockUsers);
+        console.log("Seeding initial users into MongoDB...");
+        await User.insertMany(localUsers);
         console.log("Seeding complete.");
       }
     } catch (err) {
       console.error("Seeding error:", err);
     }
   })
-  .catch((err) => console.error("MongoDB connection error:", err));
+  .catch((err) => {
+    console.warn("MongoDB connection failed (Timeout 2s). Falling back to in-memory local mock database.");
+    isMongoConnected = false;
+  });
 
 interface LocationData {
   id: string;
@@ -92,8 +138,12 @@ const users: Record<string, LocationData> = {};
 // API Routes
 app.get("/api/incidents", async (req, res) => {
   try {
-    const incidents = await Incident.find().sort({ timestamp: -1 });
-    res.json(incidents);
+    if (isMongoConnected) {
+      const incidents = await Incident.find().sort({ timestamp: -1 });
+      res.json(incidents);
+    } else {
+      res.json(localIncidents);
+    }
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch incidents" });
   }
@@ -101,13 +151,24 @@ app.get("/api/incidents", async (req, res) => {
 
 app.post("/api/incidents", async (req, res) => {
   try {
-    const newIncident = new Incident(req.body);
-    await newIncident.save();
-
-    // Broadcast new incident to all connected clients
-    io.emit("newIncident", newIncident);
-
-    res.status(201).json(newIncident);
+    if (isMongoConnected) {
+      const newIncident = new Incident(req.body);
+      await newIncident.save();
+      io.emit("newIncident", newIncident);
+      res.status(201).json(newIncident);
+    } else {
+      const newIncident = {
+        ...req.body,
+        id: req.body.id || Date.now().toString(),
+        timestamp: req.body.timestamp || new Date().toISOString(),
+        verified: req.body.verified || false,
+        upvotes: req.body.upvotes || 0,
+        severity: req.body.severity || 1
+      };
+      localIncidents.unshift(newIncident);
+      io.emit("newIncident", newIncident);
+      res.status(201).json(newIncident);
+    }
   } catch (err) {
     res.status(500).json({ error: "Failed to create incident" });
   }
@@ -115,17 +176,30 @@ app.post("/api/incidents", async (req, res) => {
 
 app.post("/api/incidents/:id/upvote", async (req, res) => {
   try {
-    const incident = await Incident.findOne({ id: req.params.id });
-    if (!incident) {
-      return res.status(404).json({ error: "Incident not found" });
+    if (isMongoConnected) {
+      const incident = await Incident.findOne({ id: req.params.id });
+      if (!incident) {
+        return res.status(404).json({ error: "Incident not found" });
+      }
+      incident.upvotes += 1;
+      if (incident.upvotes >= 5) {
+        incident.verified = true;
+      }
+      await incident.save();
+      io.emit("incidentUpdated", incident); // Re-emit to update clients
+      res.json(incident);
+    } else {
+      const incident = localIncidents.find(i => i.id === req.params.id);
+      if (!incident) {
+        return res.status(404).json({ error: "Incident not found" });
+      }
+      incident.upvotes = (incident.upvotes || 0) + 1;
+      if (incident.upvotes >= 5) {
+        incident.verified = true;
+      }
+      io.emit("incidentUpdated", incident);
+      res.json(incident);
     }
-    incident.upvotes += 1;
-    if (incident.upvotes >= 5) {
-      incident.verified = true;
-    }
-    await incident.save();
-    io.emit("incidentUpdated", incident); // Re-emit to update clients
-    res.json(incident);
   } catch (error) {
     res.status(500).json({ error: "Failed to upvote incident" });
   }
@@ -133,10 +207,15 @@ app.post("/api/incidents/:id/upvote", async (req, res) => {
 
 app.get("/api/incidents/:id/comments", async (req, res) => {
   try {
-    const comments = await Comment.find({ incidentId: req.params.id }).sort({
-      timestamp: -1,
-    });
-    res.json(comments);
+    if (isMongoConnected) {
+      const comments = await Comment.find({ incidentId: req.params.id }).sort({
+        timestamp: -1,
+      });
+      res.json(comments);
+    } else {
+      const comments = localComments.filter(c => c.incidentId === req.params.id);
+      res.json(comments);
+    }
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch comments" });
   }
@@ -144,13 +223,25 @@ app.get("/api/incidents/:id/comments", async (req, res) => {
 
 app.post("/api/incidents/:id/comments", async (req, res) => {
   try {
-    const newComment = new Comment({
-      ...req.body,
-      incidentId: req.params.id,
-    });
-    await newComment.save();
-    io.emit("newComment", newComment);
-    res.status(201).json(newComment);
+    if (isMongoConnected) {
+      const newComment = new Comment({
+        ...req.body,
+        incidentId: req.params.id,
+      });
+      await newComment.save();
+      io.emit("newComment", newComment);
+      res.status(201).json(newComment);
+    } else {
+      const newComment = {
+        ...req.body,
+        id: req.body.id || Date.now().toString(),
+        incidentId: req.params.id,
+        timestamp: req.body.timestamp || new Date().toISOString()
+      };
+      localComments.unshift(newComment);
+      io.emit("newComment", newComment);
+      res.status(201).json(newComment);
+    }
   } catch (err) {
     res.status(500).json({ error: "Failed to add comment" });
   }
@@ -233,13 +324,22 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
 
 app.get("/api/leaderboard", async (req, res) => {
   try {
-    const users = await User.find().sort({ points: -1 }).limit(10);
-    // Assign ranks
-    const rankedUsers = users.map((user, index) => ({
-      ...user.toObject(),
-      rank: index + 1,
-    }));
-    res.json(rankedUsers);
+    if (isMongoConnected) {
+      const users = await User.find().sort({ points: -1 }).limit(10);
+      // Assign ranks
+      const rankedUsers = users.map((user, index) => ({
+        ...user.toObject(),
+        rank: index + 1,
+      }));
+      res.json(rankedUsers);
+    } else {
+      const sorted = [...localUsers].sort((a, b) => b.points - a.points).slice(0, 10);
+      const ranked = sorted.map((user, index) => ({
+        ...user,
+        rank: index + 1
+      }));
+      res.json(ranked);
+    }
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch leaderboard" });
   }
@@ -248,12 +348,21 @@ app.get("/api/leaderboard", async (req, res) => {
 app.post("/api/users", async (req, res) => {
   try {
     const { id, name, avatar } = req.body;
-    let user = await User.findOne({ id });
-    if (!user) {
-      user = new User({ id, name, avatar, points: 0, badges: ["Newcomer"] });
-      await user.save();
+    if (isMongoConnected) {
+      let user = await User.findOne({ id });
+      if (!user) {
+        user = new User({ id, name, avatar, points: 0, badges: ["Newcomer"] });
+        await user.save();
+      }
+      res.json(user);
+    } else {
+      let user = localUsers.find(u => u.id === id);
+      if (!user) {
+        user = { id, name, avatar, points: 0, badges: ["Newcomer"] };
+        localUsers.push(user);
+      }
+      res.json(user);
     }
-    res.json(user);
   } catch (err) {
     res.status(500).json({ error: "Failed to create/fetch user" });
   }

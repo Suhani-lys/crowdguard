@@ -836,21 +836,32 @@ const App = () => {
       document.documentElement.classList.remove('dark');
     }
 
+    const fallbackLocation: [number, number] = [40.7128, -74.0060];
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           setUserLocation([pos.coords.latitude, pos.coords.longitude]);
         },
-        (err) => console.error('Error getting location:', err)
+        (err) => {
+          console.warn('Geolocation access denied/failed. Using NYC fallback.', err);
+          setUserLocation(fallbackLocation);
+        }
       );
 
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
           setUserLocation([pos.coords.latitude, pos.coords.longitude]);
         },
-        (err) => console.error('Error watching location:', err)
+        (err) => {
+          console.warn('Geolocation watch failed. Using NYC fallback.', err);
+          setUserLocation(fallbackLocation);
+        }
       );
       return () => navigator.geolocation.clearWatch(watchId);
+    } else {
+      console.warn('Geolocation not supported. Using NYC fallback.');
+      setUserLocation(fallbackLocation);
     }
   }, [theme, fetchIncidents, setUserLocation]);
 

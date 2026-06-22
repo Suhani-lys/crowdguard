@@ -73,6 +73,18 @@ const LocationMarker = ({ position, followUser, setFollowUser }: { position: [nu
   );
 };
 
+const ResizeMap = () => {
+  const map = useMap();
+  useEffect(() => {
+    // Invalidate size once map finishes initial loading to solve half-grey tile bugs
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [map]);
+  return null;
+};
+
 const MapComponent: React.FC = () => {
   const { theme, incidents, fetchIncidents, userLocation, setUserLocation, filters, socket, selectIncident } = useStore();
   const [otherUsers, setOtherUsers] = useState<Record<string, { latitude: number; longitude: number }>>({});
@@ -172,9 +184,10 @@ const MapComponent: React.FC = () => {
         style={{ height: '100%', width: '100%' }}
         className="z-0"
       >
+        <ResizeMap />
         <TileLayer
-          attribution='&copy; <a href="https://www.tomtom.com">TomTom</a>'
-          url={`https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${TOMTOM_API_KEY}`}
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
         <LocationMarker position={userLocation} followUser={followUser} setFollowUser={setFollowUser} />
